@@ -2,6 +2,11 @@
 name = "mnemonic"
 version = "1.0.0"
 authors = ["Matt Brubeck <mbrubeck@limpet.net>"]
+license = "MIT"
+description = "Encode any data into a sequence of English words"
+repository = "https://github.com/mbrubeck/rust-mnemonic"
+documentation = "https://docs.rs/mnemonic"
+keywords = ["passphrase", "wordlist", "phonetic", "code", "mnemonicode"]
 
 [dependencies]
 byteorder = "1.0"
