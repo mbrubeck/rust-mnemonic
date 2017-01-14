@@ -2,7 +2,7 @@ extern crate byteorder;
 #[macro_use]
 extern crate lazy_static;
 
-use byteorder::{ByteOrder, LittleEndian};
+use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 use std::collections::HashMap;
 use std::error::Error as ErrorTrait;
 use std::fmt;
@@ -10,6 +10,7 @@ use std::io;
 use std::io::prelude::*;
 use std::result;
 
+/// Errors returned by mnemonic decoding.
 #[derive(Debug)]
 pub enum Error {
     Io(io::Error),
@@ -21,6 +22,7 @@ pub enum Error {
 }
 use Error::*;
 
+/// Result type returned by mnemonic decoding.
 pub type Result<T> = result::Result<T, Error>;
 
 impl From<io::Error> for Error {
@@ -52,7 +54,7 @@ const MN_BASE: u32 = 1626;
 /// Number of extra words for 24 bit remainders
 const MN_REMAINDER: usize = 7;
 
-// Sample formats for mn_encode
+/// Default format for encoding
 pub const MN_FDEFAULT: &'static [u8] = b"x-x-x--";
 
 static MN_WORDS: [&'static [u8]; MN_BASE as usize + MN_REMAINDER] = [
@@ -342,7 +344,34 @@ lazy_static! {
     };
 }
 
-pub fn mn_encode<W: Write>(src: &[u8], format: &[u8], mut dest: W) -> io::Result<()> {
+/// Encode the bytes of `src` into a mnemonic string, and write the string to `dest`
+///
+/// ## Example
+/// ```
+/// let bytes = [101, 2, 240, 6, 108, 11, 20, 97];
+/// let mut dest = Vec::<u8>::new();
+///
+/// mnemonic::encode(&bytes, &mut dest).unwrap();
+/// assert_eq!(dest, &b"digital-apollo-aroma--rival-artist-rebel"[..]);
+/// ```
+pub fn encode<S, W>(src: S, dest: W) -> io::Result<()>
+    where S: AsRef<[u8]>,
+          W: Write
+{
+    encode_with_format(src, MN_FDEFAULT, dest)
+}
+
+/// Encode the bytes of `s` with a custom template.
+///
+/// TODO: Document the template format.
+pub fn encode_with_format<S, F, W>(src: S, format: F, mut dest: W) -> io::Result<()>
+    where S: AsRef<[u8]>,
+          F: AsRef<[u8]>,
+          W: Write
+{
+    let src = src.as_ref();
+    let format = format.as_ref();
+
     let num_words = mn_words_required(src);
     let mut n = 0;
     let mut i = 0; // index within format
@@ -365,9 +394,18 @@ pub fn mn_encode<W: Write>(src: &[u8], format: &[u8], mut dest: W) -> io::Result
     Ok(())
 }
 
-pub fn to_string(src: &[u8]) -> String {
+/// Encode the bytes of `src` and return the results as a String
+///
+/// ## Example
+/// ```
+/// let bytes = [101, 2, 240, 6, 108, 11, 20, 97];
+///
+/// let s = mnemonic::to_string(&bytes);
+/// assert_eq!(s, "digital-apollo-aroma--rival-artist-rebel");
+/// ```
+pub fn to_string<S: AsRef<[u8]>>(src: S) -> String {
     let mut v = Vec::new();
-    mn_encode(src, MN_FDEFAULT, &mut v).unwrap();
+    encode(src, &mut v).unwrap();
     String::from_utf8(v).unwrap()
 }
 
@@ -409,68 +447,80 @@ fn is_ascii_alpha(b: u8) -> bool {
     }
 }
 
-pub fn mn_decode<S: AsRef<[u8]>, W: Write>(src: S, mut dest: W) -> Result<usize> {
-    let mut offset = 0;   // Number of bytes decoded so far.
-    let mut buf = [0; 4]; // We decode each 4-byte chunk into this buffer.
+/// Decode the mnemonic string `src` into bytes, and write the bytes to `dest`.
+///
+/// ## Example
+///
+/// ```
+/// let src = "digital-apollo-aroma--rival-artist-rebel";
+///
+/// let mut dest = Vec::<u8>::new();
+/// mnemonic::decode(src, &mut dest).unwrap();
+///
+/// assert_eq!(dest, [101, 2, 240, 6, 108, 11, 20, 97]);
+/// ```
+pub fn decode<S, W>(src: S, mut dest: W) -> Result<usize>
+    where S: AsRef<[u8]>,
+          W: Write
+{
+    let mut offset = 0; // Number of bytes decoded so far.
+    let mut x = 0u32;   // We decode each 4-byte chunk into this 32-bit value.
 
     let words = src.as_ref().split(|c| !is_ascii_alpha(*c))
                             .filter(|w| !w.is_empty());
     for word in words {
         let i = *MN_WORD_INDEX.get(word).ok_or(UnrecognizedWord)?;
-        mn_decode_word_index(i, &mut buf, &mut offset)?;
+        mn_decode_word_index(i, &mut x, &mut offset)?;
         if offset % 4 == 0 {
             // Finished decoding this 4-byte chunk.
-            dest.write_all(&buf)?;
-            buf = [0; 4];
+            dest.write_u32::<LittleEndian>(x)?;
+            x = 0;
         }
     }
     // Write any trailing bytes.
     let remainder = offset % 4;
     if remainder > 0 {
+        let mut buf = [0; 4];
+        LittleEndian::write_u32(&mut buf, x);
         dest.write_all(&buf[..remainder])?;
     }
-    mn_decode_finish(&buf, remainder)?;
+    mn_decode_finish(x, remainder)?;
     Ok(offset)
 }
 
-fn mn_decode_word_index(index: u32, dest: &mut [u8; 4], offset: &mut usize) -> Result<()> {
+fn mn_decode_word_index(index: u32, x: &mut u32, offset: &mut usize) -> Result<()> {
     if index >= MN_BASE && *offset % 4 != 2 {
         return Err(UnexpectedRemainderWord)
     }
-    let mut x = LittleEndian::read_u32(dest);
-
     match *offset % 4 {
         3 => return Err(DataPastRemainder),
+        2 if index >= MN_BASE => {
+            // 24-bit remainder
+            *x += (index - MN_BASE) * MN_BASE * MN_BASE;
+            *offset += 1; // *offset%4 == 3 for next time
+        }
         2 => {
-            if index >= MN_BASE {
-                // 24-bit remainder
-                x += (index - MN_BASE) * MN_BASE * MN_BASE;
-                *offset += 1; // *offset%4 == 3 for next time
-            } else {
-                // catch invalid encodings
-                if index >= 1625 || (index == 1624 && x > 1312671) {
-                    return Err(InvalidEncoding)
-                }
-                x += index * MN_BASE * MN_BASE;
-                *offset += 2;       /* *offset%4 == 0 for next time */
+            // catch invalid encodings
+            if index >= 1625 || (index == 1624 && *x > 1312671) {
+                return Err(InvalidEncoding)
             }
+            *x += index * MN_BASE * MN_BASE;
+            *offset += 2;
         }
         1 => {
-            x += index * MN_BASE;
+            *x += index * MN_BASE;
             *offset += 1;
         }
         0 => {
-            x = index;
+            *x = index;
             *offset += 1;
         }
         _ => unreachable!()
     }
-    LittleEndian::write_u32(dest, x);
     Ok(())
 }
 
-fn mn_decode_finish(dest: &[u8; 4], remainder: usize) -> Result<()> {
-    let x = LittleEndian::read_u32(dest);
+fn mn_decode_finish(x: u32, remainder: usize) -> Result<()> {
     if (remainder == 2 && x > 0xFFFF) || (remainder == 1 && x > 0xFF) {
         return Err(UnexpectedRemainder)
     }
@@ -483,9 +533,9 @@ mod tests {
     use std::str;
 
     #[test]
-    fn test_mn_encode() {
+    fn test_encode() {
         let mut w: Vec<u8> = vec![];
-        mn_encode(&[101, 2, 240, 6, 108, 11, 20, 97], MN_FDEFAULT, &mut w).unwrap();
+        encode(&[101, 2, 240, 6, 108, 11, 20, 97], &mut w).unwrap();
         let s = str::from_utf8(&w).unwrap();
         assert_eq!(s, "digital-apollo-aroma--rival-artist-rebel");
     }
@@ -497,10 +547,10 @@ mod tests {
     }
 
     #[test]
-    fn test_mn_decode() {
+    fn test_decode() {
         let mut dest: Vec<u8> = vec![];
         let src = "digital-apollo-aroma--rival-artist-rebel";
-        mn_decode(src, &mut dest).unwrap();
+        decode(src, &mut dest).unwrap();
         assert_eq!(dest, [101, 2, 240, 6, 108, 11, 20, 97]);
     }
 
@@ -514,7 +564,7 @@ mod tests {
     fn test_decode_24bit() {
         let mut dest: Vec<u8> = vec![];
         let src = "consul-quiet-fax";
-        mn_decode(src, &mut dest).unwrap();
+        decode(src, &mut dest).unwrap();
         assert_eq!(dest, [0x01, 0xE2, 0x40]);
     }
 }
