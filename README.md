@@ -18,7 +18,7 @@ http://web.archive.org/web/20101031205747/http://www.tothink.com/mnemonic/
 
 ## Example
 
-```
+```rust
 let bytes = [101, 2, 240, 6, 108, 11, 20, 97];
 
 let s = mnemonic::to_string(&bytes);
