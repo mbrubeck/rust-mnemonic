@@ -29,6 +29,10 @@ extern crate byteorder;
 #[macro_use]
 extern crate lazy_static;
 
+#[cfg(test)]
+#[macro_use]
+extern crate quickcheck;
+
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 use std::collections::HashMap;
 use std::error::Error as ErrorTrait;
@@ -593,5 +597,14 @@ mod tests {
         let src = "consul-quiet-fax";
         decode(src, &mut dest).unwrap();
         assert_eq!(dest, [0x01, 0xE2, 0x40]);
+    }
+
+    quickcheck! {
+        fn quickcheck_round_trip(src: Vec<u8>) -> bool {
+            let encoded = to_string(&src);
+            let mut decoded = Vec::<u8>::new();
+            decode(encoded, &mut decoded).unwrap();
+            decoded == src
+        }
     }
 }
