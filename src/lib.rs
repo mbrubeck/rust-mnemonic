@@ -13,7 +13,7 @@
 //!
 //! ## Example
 //!
-//! ```
+//! ```rust
 //! let bytes = [101, 2, 240, 6, 108, 11, 20, 97];
 //!
 //! let s = mnemonic::to_string(&bytes);
