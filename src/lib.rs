@@ -25,13 +25,7 @@
 //! assert_eq!(decoded, [101, 2, 240, 6, 108, 11, 20, 97]);
 //! ```
 
-extern crate byteorder;
-#[macro_use]
-extern crate lazy_static;
-
-#[cfg(test)]
-#[macro_use]
-extern crate quickcheck;
+use lazy_static::lazy_static;
 
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 use std::collections::HashMap;
@@ -51,7 +45,7 @@ pub enum Error {
     DataPastRemainder,
     InvalidEncoding,
 }
-use Error::*;
+use crate::Error::*;
 
 /// Result type returned by mnemonic decoding.
 pub type Result<T> = result::Result<T, Error>;
@@ -74,7 +68,7 @@ impl ErrorTrait for Error {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.description())
     }
 }
@@ -472,8 +466,8 @@ fn mn_encode_word(src: &[u8], n: usize) -> &'static [u8] {
 
 fn is_ascii_alpha(b: u8) -> bool {
     match b {
-        b'a'...b'z' |
-        b'A'...b'Z' => true,
+        b'a'..=b'z' |
+        b'A'..=b'Z' => true,
         _ => false
     }
 }
@@ -560,6 +554,7 @@ fn mn_decode_finish(x: u32, remainder: usize) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use quickcheck::quickcheck;
     use super::*;
     use std::str;
 
