@@ -88,7 +88,7 @@ const MN_REMAINDER: usize = 7;
 /// Default format for encoding
 pub const MN_FDEFAULT: &'static [u8] = b"x-x-x--";
 
-static MN_WORDS: [&'static [u8]; MN_BASE as usize + MN_REMAINDER] = [
+pub static MN_WORDS: [&'static [u8]; MN_BASE as usize + MN_REMAINDER] = [
     b"academy",  b"acrobat",  b"active",   b"actor",    b"adam",     b"admiral",
     b"adrian",   b"africa",   b"agenda",   b"agent",    b"airline",  b"airport",
     b"aladdin",  b"alarm",    b"alaska",   b"albert",   b"albino",   b"album",
