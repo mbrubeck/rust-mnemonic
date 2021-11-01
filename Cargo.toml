@@ -1,16 +1,17 @@
 [package]
 name = "mnemonic"
 version = "1.0.0"
-authors = ["Matt Brubeck <mbrubeck@limpet.net>"]
+authors = ["Matt Brubeck <mbrubeck@limpet.net>", "Jan Christian Grünhage <jan.christian@gruenhage.xyz>"]
 license = "MIT"
 description = "Encode any data into a sequence of English words"
 repository = "https://github.com/mbrubeck/rust-mnemonic"
 documentation = "https://docs.rs/mnemonic"
 keywords = ["passphrase", "wordlist", "phonetic", "code", "mnemonicode"]
+edition = "2018"
 
 [dependencies]
-byteorder = "1.0"
-lazy_static = "0.2"
+byteorder = "1"
+lazy_static = "1"
 
 [dev-dependencies]
-quickcheck = "0.4"
+quickcheck = "1"
