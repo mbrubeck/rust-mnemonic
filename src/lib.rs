@@ -25,21 +25,13 @@
 //! assert_eq!(decoded, [101, 2, 240, 6, 108, 11, 20, 97]);
 //! ```
 
-extern crate byteorder;
-#[macro_use]
-extern crate lazy_static;
-
-#[cfg(test)]
-#[macro_use]
-extern crate quickcheck;
-
-use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 use std::collections::HashMap;
 use std::error::Error as ErrorTrait;
 use std::fmt;
 use std::io;
 use std::io::prelude::*;
 use std::result;
+use std::sync::OnceLock;
 
 /// Errors returned by mnemonic decoding.
 #[derive(Debug)]
@@ -65,7 +57,7 @@ impl ErrorTrait for Error {}
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Io(ref e) => write!(f, "{}", e.to_string()),
+            Io(ref e) => write!(f, "{}", e),
             UnrecognizedWord => f.write_str("Unrecognized word"),
             UnexpectedRemainder => f.write_str("Unexpected remainder (possible truncated string)"),
             UnexpectedRemainderWord => f.write_str("Unexpected 24-bit remainder word"),
@@ -360,15 +352,16 @@ pub static MN_WORDS: [&[u8]; MN_BASE as usize + MN_REMAINDER] = [
     b"yes"
 ];
 
-lazy_static! {
+fn mn_word_index() -> &'static HashMap<&'static [u8], u32> {
     /// Map from words to indices in the MN_WORDS array
-    static ref MN_WORD_INDEX: HashMap<&'static [u8], u32> = {
+    static MN_WORD_INDEX: OnceLock<HashMap<&'static [u8], u32>> = OnceLock::new();
+    MN_WORD_INDEX.get_or_init(|| {
         let mut map = HashMap::new();
         for (i, word) in MN_WORDS.iter().enumerate() {
             map.insert(*word, i as u32);
         }
         map
-    };
+    })
 }
 
 /// Encode the bytes of `src` into a mnemonic string, and write the string to `dest`
@@ -404,7 +397,7 @@ pub fn encode_with_format<S, F, W>(src: S, format: F, mut dest: W) -> io::Result
     let mut i = 0; // index within format
 
     while n < num_words {
-        while i < format.len() && !is_ascii_alpha(format[i]) {
+        while i < format.len() && !format[i].is_ascii_alphabetic() {
             dest.write_all(&[format[i]])?;
             i += 1;
         }
@@ -412,7 +405,7 @@ pub fn encode_with_format<S, F, W>(src: S, format: F, mut dest: W) -> io::Result
             i = 0;
             continue
         }
-        while is_ascii_alpha(format[i]) {
+        while format[i].is_ascii_alphabetic() {
             i += 1;
         }
         dest.write_all(mn_encode_word(src, n))?;
@@ -466,10 +459,6 @@ fn mn_encode_word(src: &[u8], n: usize) -> &'static [u8] {
     MN_WORDS[(x % MN_BASE + extra) as usize]
 }
 
-fn is_ascii_alpha(b: u8) -> bool {
-    matches!(b, b'a'..=b'z' | b'A'..=b'Z')
-}
-
 /// Decode the mnemonic string `src` into bytes, and write the bytes to `dest`.
 ///
 /// ## Example
@@ -489,22 +478,21 @@ pub fn decode<S, W>(src: S, mut dest: W) -> Result<usize>
     let mut offset = 0; // Number of bytes decoded so far.
     let mut x = 0u32;   // We decode each 4-byte chunk into this 32-bit value.
 
-    let words = src.as_ref().split(|c| !is_ascii_alpha(*c))
+    let words = src.as_ref().split(|c| !c.is_ascii_alphabetic())
                             .filter(|w| !w.is_empty());
     for word in words {
-        let i = *MN_WORD_INDEX.get(word).ok_or(UnrecognizedWord)?;
+        let i = *mn_word_index().get(word).ok_or(UnrecognizedWord)?;
         mn_decode_word_index(i, &mut x, &mut offset)?;
         if offset % 4 == 0 {
             // Finished decoding this 4-byte chunk.
-            dest.write_u32::<LittleEndian>(x)?;
+            dest.write_all(&x.to_le_bytes())?;
             x = 0;
         }
     }
     // Write any trailing bytes.
     let remainder = offset % 4;
     if remainder > 0 {
-        let mut buf = [0; 4];
-        LittleEndian::write_u32(&mut buf, x);
+        let buf = x.to_le_bytes();
         dest.write_all(&buf[..remainder])?;
     }
     mn_decode_finish(x, remainder)?;
@@ -552,6 +540,7 @@ fn mn_decode_finish(x: u32, remainder: usize) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use quickcheck::quickcheck;
     use super::*;
     use std::str;
 
