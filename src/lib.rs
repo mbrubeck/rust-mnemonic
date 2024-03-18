@@ -60,22 +60,18 @@ impl From<io::Error> for Error {
     fn from(other: io::Error) -> Self { Io(other) }
 }
 
-impl ErrorTrait for Error {
-    fn description(&self) -> &str {
-        match *self {
-            Io(ref e) => e.description(),
-            UnrecognizedWord => "Unrecognized word",
-            UnexpectedRemainder => "Unexpected remainder (possible truncated string)",
-            UnexpectedRemainderWord => "Unexpected 24-bit remainder word",
-            DataPastRemainder => "Unexpected data past 24-bit remainder",
-            InvalidEncoding => "Invalid encoding",
-        }
-    }
-}
+impl ErrorTrait for Error {}
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.description())
+        match self {
+            Io(ref e) => write!(f, "{}", e.to_string()),
+            UnrecognizedWord => f.write_str("Unrecognized word"),
+            UnexpectedRemainder => f.write_str("Unexpected remainder (possible truncated string)"),
+            UnexpectedRemainderWord => f.write_str("Unexpected 24-bit remainder word"),
+            DataPastRemainder => f.write_str("Unexpected data past 24-bit remainder"),
+            InvalidEncoding => f.write_str("Invalid encoding"),
+        }
     }
 }
 
@@ -86,9 +82,9 @@ const MN_BASE: u32 = 1626;
 const MN_REMAINDER: usize = 7;
 
 /// Default format for encoding
-pub const MN_FDEFAULT: &'static [u8] = b"x-x-x--";
+pub const MN_FDEFAULT: &[u8] = b"x-x-x--";
 
-pub static MN_WORDS: [&'static [u8]; MN_BASE as usize + MN_REMAINDER] = [
+pub static MN_WORDS: [&[u8]; MN_BASE as usize + MN_REMAINDER] = [
     b"academy",  b"acrobat",  b"active",   b"actor",    b"adam",     b"admiral",
     b"adrian",   b"africa",   b"agenda",   b"agent",    b"airline",  b"airport",
     b"aladdin",  b"alarm",    b"alaska",   b"albert",   b"albino",   b"album",
@@ -471,11 +467,7 @@ fn mn_encode_word(src: &[u8], n: usize) -> &'static [u8] {
 }
 
 fn is_ascii_alpha(b: u8) -> bool {
-    match b {
-        b'a'...b'z' |
-        b'A'...b'Z' => true,
-        _ => false
-    }
+    matches!(b, b'a'..=b'z' | b'A'..=b'Z')
 }
 
 /// Decode the mnemonic string `src` into bytes, and write the bytes to `dest`.
